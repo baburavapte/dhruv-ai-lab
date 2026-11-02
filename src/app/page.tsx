@@ -100,6 +100,7 @@ export default function Home() {
             opacity: showPortfolio ? 0 : 1,
             transition: "opacity 0.8s ease-in-out",
             pointerEvents: showPortfolio ? "none" : "auto",
+            touchAction: "none",
           }}
         >
           <Scene />

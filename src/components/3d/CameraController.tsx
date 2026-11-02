@@ -197,6 +197,15 @@ function getTargetSpeedForProgress(p: number): number {
   return CAMERA_SPEED_CONFIG.HYPERDRIVE_TRANSITION;
 }
 
+function isInteractiveElement(target: EventTarget | null): boolean {
+  if (!target || !(target instanceof Element)) return false;
+  return Boolean(
+    target.closest(
+      'button, a, input, select, textarea, [role="button"], [role="link"], [data-interactive="true"]'
+    )
+  );
+}
+
 export default function CameraController({ onProgressChange, onFadeChange }: CameraControllerProps) {
   const { pointer } = useThree();
 
@@ -211,11 +220,23 @@ export default function CameraController({ onProgressChange, onFadeChange }: Cam
   // Cached vector math refs to guarantee ZERO GC allocations in useFrame
   const currentLookAtRef = useRef(new THREE.Vector3(0, 4.8, -35));
 
-  // STRICTLY ArrowUp and ArrowDown ONLY
+  // Traversal keys state (ArrowUp / ArrowDown)
   const keysRef = useRef<{ ArrowUp: boolean; ArrowDown: boolean }>({
     ArrowUp: false,
     ArrowDown: false,
   });
+
+  // Mobile touch navigation state
+  const touchActiveRef = useRef(false);
+  const touchStartXRef = useRef(0);
+  const touchStartYRef = useRef(0);
+  const touchLastYRef = useRef(0);
+  const touchStartTimeRef = useRef(0);
+  const isDraggingRef = useRef(false);
+  const isLongPressRef = useRef(false);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tapHistoryRef = useRef<number[]>([]);
+  const tripleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -302,29 +323,165 @@ export default function CameraController({ onProgressChange, onFadeChange }: Cam
     window.addEventListener("popstate", syncFromUrl);
     window.addEventListener("setProgress", handleCustomProgress);
 
-    // Touch controls for mobile / tablet 3D exploration
+    // -------------------------------------------------------------------------
+    // Mobile Touch Navigation System:
+    // - Touch and drag anywhere: drag upward to move forward, drag downward to move backward
+    // - Direction changes respond immediately
+    // - Long press anywhere continuously moves forward while held
+    // - Release finger stops continuous movement
+    // - Three quick taps anywhere navigates backward
+    // - Non-interfering with interactive UI buttons and links
+    // -------------------------------------------------------------------------
+
     const handleTouchStart = (e: TouchEvent) => {
+      // Process single-finger gestures only
       if (e.touches.length !== 1) return;
+
+      // Allow natural taps on buttons, links, inputs, and modals
+      if (isInteractiveElement(e.target)) return;
+
       const t = e.touches[0];
-      const h = window.innerHeight;
-      // Tap/hold top 65% of screen = forward; bottom 35% = backward
-      if (t.clientY < h * 0.65) {
-        keysRef.current.ArrowUp = true;
+      const now = performance.now();
+
+      touchActiveRef.current = true;
+      touchStartXRef.current = t.clientX;
+      touchStartYRef.current = t.clientY;
+      touchLastYRef.current = t.clientY;
+      touchStartTimeRef.current = now;
+      isDraggingRef.current = false;
+      isLongPressRef.current = false;
+
+      // If triple-tap backward movement was in progress, a new touch takes over immediately
+      if (tripleTapTimerRef.current) {
+        clearTimeout(tripleTapTimerRef.current);
+        tripleTapTimerRef.current = null;
         keysRef.current.ArrowDown = false;
-      } else {
-        keysRef.current.ArrowDown = true;
-        keysRef.current.ArrowUp = false;
+      }
+
+      // Clear any pending long-press timer
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+
+      // Start long-press detection (continuous forward movement while held)
+      longPressTimerRef.current = setTimeout(() => {
+        if (touchActiveRef.current && !isDraggingRef.current) {
+          isLongPressRef.current = true;
+          keysRef.current.ArrowUp = true;
+          keysRef.current.ArrowDown = false;
+        }
+      }, 320);
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (!touchActiveRef.current || e.touches.length !== 1) return;
+
+      const t = e.touches[0];
+      const currentY = t.clientY;
+      const currentX = t.clientX;
+
+      const totalDy = currentY - touchStartYRef.current;
+      const totalDx = currentX - touchStartXRef.current;
+      const distSq = totalDx * totalDx + totalDy * totalDy;
+
+      // Start drag recognition once finger moves past threshold (> 7px)
+      if (!isDraggingRef.current && distSq > 49) {
+        isDraggingRef.current = true;
+        // Cancel long press when drag begins
+        if (longPressTimerRef.current) {
+          clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = null;
+        }
+      }
+
+      if (isDraggingRef.current) {
+        // Prevent accidental page scrolling or browser navigation gestures on mobile
+        if (e.cancelable) {
+          e.preventDefault();
+        }
+
+        const instantDy = currentY - touchLastYRef.current;
+
+        // Immediate directional response:
+        // Drag upward (instantDy < -1.5) -> Move forward
+        // Drag downward (instantDy > 1.5) -> Move backward
+        if (instantDy < -1.5) {
+          keysRef.current.ArrowUp = true;
+          keysRef.current.ArrowDown = false;
+        } else if (instantDy > 1.5) {
+          keysRef.current.ArrowDown = true;
+          keysRef.current.ArrowUp = false;
+        }
+
+        touchLastYRef.current = currentY;
       }
     };
 
     const handleTouchEnd = () => {
+      if (!touchActiveRef.current) return;
+      touchActiveRef.current = false;
+
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+
+      const now = performance.now();
+      const touchDuration = now - touchStartTimeRef.current;
+      const wasDragging = isDraggingRef.current;
+      const wasLongPress = isLongPressRef.current;
+
+      // Release finger stops continuous drag or long-press movement immediately
+      if (wasDragging || wasLongPress) {
+        keysRef.current.ArrowUp = false;
+        keysRef.current.ArrowDown = false;
+        isDraggingRef.current = false;
+        isLongPressRef.current = false;
+        return;
+      }
+
+      // Check for quick tap (< 280ms duration and stationary)
+      if (touchDuration < 280) {
+        const recentTaps = tapHistoryRef.current.filter((ts) => now - ts < 750);
+        recentTaps.push(now);
+        tapHistoryRef.current = recentTaps;
+
+        // Three quick taps anywhere -> move backward
+        if (recentTaps.length >= 3) {
+          tapHistoryRef.current = []; // Reset history
+          keysRef.current.ArrowUp = false;
+          keysRef.current.ArrowDown = true;
+
+          if (tripleTapTimerRef.current) {
+            clearTimeout(tripleTapTimerRef.current);
+          }
+
+          // Smoothly navigate backward for ~1.6s (~7-8 progress units)
+          tripleTapTimerRef.current = setTimeout(() => {
+            keysRef.current.ArrowDown = false;
+            tripleTapTimerRef.current = null;
+          }, 1600);
+        }
+      }
+    };
+
+    const handleTouchCancel = () => {
+      touchActiveRef.current = false;
+      isDraggingRef.current = false;
+      isLongPressRef.current = false;
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
       keysRef.current.ArrowUp = false;
       keysRef.current.ArrowDown = false;
     };
 
     window.addEventListener("touchstart", handleTouchStart, { passive: true });
+    window.addEventListener("touchmove", handleTouchMove, { passive: false });
     window.addEventListener("touchend", handleTouchEnd, { passive: true });
-    window.addEventListener("touchcancel", handleTouchEnd, { passive: true });
+    window.addEventListener("touchcancel", handleTouchCancel, { passive: true });
 
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
@@ -334,8 +491,11 @@ export default function CameraController({ onProgressChange, onFadeChange }: Cam
       window.removeEventListener("popstate", syncFromUrl);
       window.removeEventListener("setProgress", handleCustomProgress);
       window.removeEventListener("touchstart", handleTouchStart);
+      window.removeEventListener("touchmove", handleTouchMove);
       window.removeEventListener("touchend", handleTouchEnd);
-      window.removeEventListener("touchcancel", handleTouchEnd);
+      window.removeEventListener("touchcancel", handleTouchCancel);
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+      if (tripleTapTimerRef.current) clearTimeout(tripleTapTimerRef.current);
     };
   }, []);
 
