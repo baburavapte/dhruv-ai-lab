@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import InfoPanel, { type PanelId } from "./InfoPanel";
+import StepBeyondButton from "./StepBeyondButton";
 import {
   profile,
   socialLinks,
@@ -688,8 +689,10 @@ function FeaturedLiveProject() {
 
 export default function ProfessionalHome({
   onEnterWorld,
+  isEnteringWorld = false,
 }: {
   onEnterWorld: () => void;
+  isEnteringWorld?: boolean;
 }) {
   const [activePanel, setActivePanel] = useState<PanelId>(null);
   const [phase, setLocalPhase] = useState<PortfolioPhase>(
@@ -926,7 +929,7 @@ export default function ProfessionalHome({
           className="relative z-10 mx-auto flex min-h-[100svh] w-full max-w-4xl flex-col items-center justify-start px-4 sm:px-8"
           style={{
             paddingTop: "calc(clamp(1.75rem, 5vh, 3.5rem) + env(safe-area-inset-top, 0px))",
-            paddingBottom: "calc(clamp(2rem, 5vh, 4rem) + env(safe-area-inset-bottom, 0px))",
+            paddingBottom: "calc(clamp(6.5rem, 14vh, 9.5rem) + env(safe-area-inset-bottom, 0px))",
           }}
         >
           {/* HERO SECTION */}
@@ -1044,6 +1047,14 @@ export default function ProfessionalHome({
             ))}
           </div>
         </div>
+
+        {/* MAGICAL GOTHIC ENTRANCE BUTTON: STEP BEYOND REALITY */}
+        {!activePanel && (
+          <StepBeyondButton
+            onClick={onEnterWorld}
+            disabled={isEnteringWorld}
+          />
+        )}
       </div>
 
       {/* INFO PANEL OVERLAY */}

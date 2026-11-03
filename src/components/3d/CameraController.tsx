@@ -240,20 +240,20 @@ export default function CameraController({ onProgressChange, onFadeChange }: Cam
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "ArrowUp") {
+      if (e.key === "ArrowUp" || e.key === "w" || e.key === "W" || e.code === "KeyW") {
         e.preventDefault();
         keysRef.current.ArrowUp = true;
-      } else if (e.key === "ArrowDown") {
+      } else if (e.key === "ArrowDown" || e.key === "s" || e.key === "S" || e.code === "KeyS") {
         e.preventDefault();
         keysRef.current.ArrowDown = true;
       }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.key === "ArrowUp") {
+      if (e.key === "ArrowUp" || e.key === "w" || e.key === "W" || e.code === "KeyW") {
         e.preventDefault();
         keysRef.current.ArrowUp = false;
-      } else if (e.key === "ArrowDown") {
+      } else if (e.key === "ArrowDown" || e.key === "s" || e.key === "S" || e.code === "KeyS") {
         e.preventDefault();
         keysRef.current.ArrowDown = false;
       }
@@ -304,7 +304,7 @@ export default function CameraController({ onProgressChange, onFadeChange }: Cam
 
     if (typeof window !== "undefined") {
       (window as unknown as { __getWorldProgress: () => number }).__getWorldProgress =
-        () => worldProgressRef.current;
+        () => positiveModulo(worldProgressRef.current, LOOP_LENGTH);
       (window as unknown as { __setWorldProgress: (v: number) => void }).__setWorldProgress =
         (v: number) => {
           worldProgressRef.current = v;
@@ -560,8 +560,8 @@ export default function CameraController({ onProgressChange, onFadeChange }: Cam
       }
     }
 
-    // Periodic normalization to prevent float overflow over long sessions
-    if (worldProgressRef.current > 5000 || worldProgressRef.current < -5000) {
+    // Continuous loop wrapping when traversing past the deep space threshold (450 -> 0)
+    if (worldProgressRef.current >= LOOP_LENGTH || worldProgressRef.current < -5000) {
       worldProgressRef.current = positiveModulo(worldProgressRef.current, LOOP_LENGTH);
     }
 

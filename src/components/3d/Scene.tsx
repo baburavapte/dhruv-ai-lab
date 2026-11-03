@@ -531,7 +531,22 @@ function getInitialDeviceCapability(): {
   return { dpr: [1, 1.5], particleCount: 320, shadowMapSize: 1024 };
 }
 
-export default function Scene() {
+function WorldReadyNotifier({ onReady }: { onReady?: () => void }) {
+  const signaledRef = useRef(false);
+  useFrame(() => {
+    if (!signaledRef.current) {
+      signaledRef.current = true;
+      if (typeof window !== "undefined") {
+        (window as unknown as { __threeWorldReady?: boolean }).__threeWorldReady = true;
+        window.dispatchEvent(new CustomEvent("threeWorldReady"));
+      }
+      onReady?.();
+    }
+  });
+  return null;
+}
+
+export default function Scene({ onReady }: { onReady?: () => void } = {}) {
   const fadeOverlayRef = useRef<HTMLDivElement>(null);
   const fortressRef = useRef<THREE.Group>(null);
   const tunnelRef = useRef<THREE.Group>(null);
@@ -610,6 +625,9 @@ export default function Scene() {
       >
         {/* Dynamic Fog Controller (smooth transition between environments) */}
         <StageFogController />
+
+        {/* Readiness signal notifier */}
+        <WorldReadyNotifier onReady={onReady} />
 
         {/* Stage Visibility Coordinator (strict world separation, zero unmount spikes) */}
         <StageVisibilityCoordinator
